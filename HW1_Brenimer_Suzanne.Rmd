@@ -1,10 +1,9 @@
 ---
 title: "STAA566 - HW1"
 author: "Suzanne Brenimer"
-date: "1/29/2022"
+date: "2/2/2022"
 output: html_document
-knit: (function(input_file, encoding) {
-  out_dir <- 'docs';
+knit: (function(input_file, encoding){out_dir <- 'docs';
   rmarkdown::render(input_file, encoding=encoding,
   output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
 ---
@@ -13,3 +12,118 @@ knit: (function(input_file, encoding) {
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## R Code
+
+```{r Data and Plot, warning=FALSE}
+# Load necessary libraries
+library(ggplot2)
+library(ggthemes)
+library(tidyverse)
+
+# Load data 
+# This is USGS National Produced Waters Geochemical Database (2.3)
+# available: https://www.sciencebase.gov/catalog/item/59d25d63e4b05fe04cc235f9
+load("USGSPWDBv2.3n.Rdata")
+
+# this is a very large dataset
+# filter to locations in Colorado only
+# and select only variables of interest
+pwdbCO <- USGSPWDBv2.3n %>% 
+  filter(STATE == "Colorado") %>%
+  select(BASIN,TDS,HCO3,
+         Ca,Na,Cl,Mg,DATESAMPLE) %>%
+  drop_na(TDS) %>%
+  droplevels()
+
+summary(pwdbCO$DATESAMPLE)
+
+# adjustments to data.frame for better plotting
+plotdata <- pwdbCO %>% mutate(TDS.10000 = TDS/10000)
+
+# create function to get sample size/basin counts
+n_fun <- function(x){return(data.frame(y=37,label=length(x)))}
+
+# create the plot
+p1 <- ggplot(data = plotdata, aes(x = BASIN, y = TDS.10000, fill = BASIN)) +
+  geom_boxplot(show.legend = FALSE) +
+  stat_summary(fun.data = n_fun, geom="text", hjust=0.5, size=3) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = -60, vjust=0.5, hjust=0, size=11),
+        axis.title = element_text(size = 13, vjust = 1),
+        plot.subtitle = element_text(size = 13),
+        plot.caption = element_text(face = "italic"),
+        plot.title = element_text(size = 15, face = "bold")) +
+  labs(title = "Total Dissolved Solids in Produced Waters from Colorado Wells",
+       y = "Total Dissolved Solids (10,000 mg/L)", x = "Basin",
+       subtitle = "Years of Data Available: 1924-2009",
+       caption = "Data from USGS National Produced Waters Geochemical Database v.2.3.") +
+  # annotate(geom = "text", x = "Anadarko", y = 37, label="N=", nudge_x = -.4, size=3)
+  geom_text(aes(x = "Anadarko", y = 37, label="N="), nudge_x = -.35, size=3)
+
+```
+
+
+```{r unused-code, include=FALSE}
+# create basin labels with sample size counts
+# NOTE: I wrote the following prior to choosing a different method for 
+# displaying sample sizes
+# keeping it here for future reference
+pwdbCO_labels <- pwdbCO %>%
+  select(BASIN, TDS) %>%
+  na.omit %>%
+  group_by(BASIN) %>%
+  summarise(n = n()) %>%
+  ungroup() %>%
+  mutate(
+    basinlab = factor(paste0(as.character(BASIN)," (",n,")")),
+    n = factor(n)
+    )
+
+plotdata <- pwdbCO %>%
+  left_join(pwdbCO_labels) %>%
+  mutate(TDS.10000 = TDS/10000)
+```
+
+
+## Save Figure as pdf
+
+```{r Save Figure}
+pdf("ColoradoProducedWaters_TDS.pdf", height=6, width=8)
+print(p1)
+dev.off()
+```
+```{r Save Figure with hyperlink, include=FALSE}
+# this is an alternate method to save the figure in order to include hyperlink to data
+# adapted from stack overflow topic here: 
+# https://stackoverflow.com/questions/42259826/hyperlinking-text-in-a-ggplot2-visualization
+# I couldn't quite get it to work for me
+
+library(xml2)
+library(rsvg)
+
+# store data URL for inclusion in final plot
+link <- "https://www.usgs.gov/centers/geology-energy-and-minerals-science-center/science/oil-and-gas-waters-project#data"
+
+# create new version of plot to edit the caption
+p2 <- p1 +
+  labs(caption = "LINK")
+
+# save plot
+ggsave(temp <- tempfile(fileext = ".svg"), p2)
+
+# add hyperlink into xml of the svg
+xml <- read_xml(temp)
+xml %>%
+  xml_find_all(xpath="//d1:text") %>% 
+  xml_add_parent("a", "xlink:href" = link[xml_text(.)], target = "_blank")
+write_xml(xml, temp2 <- tempfile(fileext = ".svg"))
+
+# convert to pdf
+rsvg_pdf(temp2, "test.pdf")
+```
+
+
+## Display Figure in HTML
+```{r Display Figure, echo=FALSE, fig.height = 6}
+p1
+```
